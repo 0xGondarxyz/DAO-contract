@@ -56,13 +56,13 @@ contract DAOtest is Test {
         vm.startPrank(user2);
         usdc.approve(address(dao), 100_000 * 1e6);
         dao.purchaseTokens(50_000 * 1e6);
-        voteToken.delegate(user2); //delegate voting power to user2
+        voteToken.delegate(user2); //!delegate voting power to user2
         vm.stopPrank();
 
         vm.startPrank(user3);
         usdc.approve(address(dao), 100_000 * 1e6);
         // dao.purchaseTokens(10_000 * 1e6);
-        voteToken.delegate(user3); //delegate voting power to user3
+        voteToken.delegate(user3); //!delegate voting power to user3
         vm.stopPrank();
 
         // Optional: Label addresses for better trace readability
@@ -162,5 +162,56 @@ contract DAOtest is Test {
 
         vm.warp(block.timestamp + 6 days);
         assertEq(uint256(dao.getProposalState(1)), uint256(DAO.ProposalState.Succeeded));
+    }
+
+    function test_executeProposal() public {
+        vm.startPrank(user1);
+        dao.createProposal("Test proposal", block.timestamp);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        dao.castVote(1, true);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 8 days);
+        DAO.ProposalState state = dao.getProposalState(1);
+        //test useful functions
+        console.log("Total votes: ", dao.getTotalVotes(1));
+        console.log("Quorum required: ", dao.getQuorumRequired());
+        console.log("Is voting active: ", dao.isVotingActive(1));
+        assertEq(uint256(dao.getProposalState(1)), uint256(DAO.ProposalState.Succeeded));
+
+        dao.executeProposal(1);
+        assertEq(uint256(dao.getProposalState(1)), uint256(DAO.ProposalState.Executed));
+    }
+
+    function test_delegateVotes() public {
+        vm.startPrank(user1);
+        dao.createProposal("Test proposal", block.timestamp);
+        vm.stopPrank();
+
+        // User2 delegates to user3 DIRECTLY on VoteToken
+        vm.startPrank(user2);
+        voteToken.delegate(user3); // ← Call VoteToken directly
+        vm.stopPrank();
+
+        // Now user2 has 0 voting power
+        vm.startPrank(user2);
+        vm.expectRevert("No voting power");
+        dao.castVote(1, true);
+        vm.stopPrank();
+
+        // User3 now has user2's voting power
+        vm.startPrank(user3);
+        dao.castVote(1, true);
+        vm.stopPrank();
+    }
+
+    function test_withdrawUSDC() public {
+        vm.startPrank(user1);
+        vm.expectRevert();
+        dao.withdrawUSDC(5000 * 1e6);
+        vm.stopPrank();
+        //admin withdraws
+        dao.withdrawUSDC(5000 * 1e6);
     }
 }

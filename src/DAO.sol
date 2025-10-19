@@ -35,6 +35,7 @@ contract DAO is Ownable2Step, ReentrancyGuard, Pausable {
     );
     event ProposalCanceled(uint256 proposalId);
     event VoteCast(address indexed voter, uint256 proposalId, bool support, uint256 votes);
+    event ProposalExecuted(uint256 proposalId);
 
     enum ProposalState {
         Pending,
@@ -126,11 +127,12 @@ contract DAO is Ownable2Step, ReentrancyGuard, Pausable {
     //propose function
     function createProposal(string memory _description, uint256 _startTime) external nonReentrant whenNotPaused {
         require(voteToken.getVotes(msg.sender) >= proposalThreshold, "Insufficient voting power");
+        require(_startTime >= block.timestamp, "Invalid start time");
 
         proposalCount++;
         proposals[proposalCount] =
             Proposal(proposalCount, msg.sender, _description, _startTime, _startTime + votingPeriod, 0, 0, false, false);
-        emit ProposalCreated(proposalCount, msg.sender, _description, block.timestamp, block.timestamp + votingPeriod);
+        emit ProposalCreated(proposalCount, msg.sender, _description, _startTime, _startTime + votingPeriod);
     }
 
     function cancelProposal(uint256 _proposalId) external nonReentrant whenNotPaused {
@@ -188,7 +190,7 @@ contract DAO is Ownable2Step, ReentrancyGuard, Pausable {
      * Check if againstVotes >= forVotes: return Defeated
      * Otherwise: return Succeeded
      */
-    function getProposalState(uint256 _proposalId) external view returns (ProposalState) {
+    function getProposalState(uint256 _proposalId) public view returns (ProposalState) {
         Proposal memory proposal = proposals[_proposalId];
         if (block.timestamp < proposal.starttimestamp) {
             return ProposalState.Pending;
@@ -212,5 +214,48 @@ contract DAO is Ownable2Step, ReentrancyGuard, Pausable {
         uint256 totalSupply = voteToken.totalSupply();
         uint256 quorum = (totalSupply * quorumPercentage) / 100;
         return proposal.forVotes >= quorum;
+    }
+
+    function withdrawUSDC(uint256 _amount) external nonReentrant whenNotPaused onlyOwner {
+        require(_amount > 0, "Invalid amount");
+        require(usdc.balanceOf(address(this)) >= _amount, "Insufficient balance");
+        usdc.safeTransfer(msg.sender, _amount);
+    }
+
+    /**
+     *  executeProposal(proposalId)
+     *
+     * Require state is Succeeded (use getProposalState)
+     * Require not already executed
+     * Set executed flag to true
+     * Emit ProposalExecuted event
+     */
+    function executeProposal(uint256 _proposalId) external nonReentrant whenNotPaused onlyOwner {
+        require(getProposalState(_proposalId) == ProposalState.Succeeded, "Proposal not succeeded");
+        require(!proposals[_proposalId].executed, "Proposal already executed");
+        proposals[_proposalId].executed = true;
+        emit ProposalExecuted(_proposalId);
+    }
+
+    /**
+     * useful functions
+     * getTotalVotes(proposalId) - returns forVotes + againstVotes
+     * getQuorumRequired() - returns the calculated quorum threshold
+     * isVotingActive(proposalId) - helper to check if voting is currently open
+     */
+    function getTotalVotes(uint256 _proposalId) public view returns (uint256) {
+        Proposal memory proposal = proposals[_proposalId];
+        return proposal.forVotes + proposal.againstVotes;
+    }
+
+    function getQuorumRequired() public view returns (uint256) {
+        uint256 totalSupply = voteToken.totalSupply();
+        uint256 quorum = (totalSupply * quorumPercentage) / 100;
+        return quorum;
+    }
+
+    function isVotingActive(uint256 _proposalId) public view returns (bool) {
+        Proposal memory proposal = proposals[_proposalId];
+        return block.timestamp >= proposal.starttimestamp && block.timestamp <= proposal.endtimestamp;
     }
 }
