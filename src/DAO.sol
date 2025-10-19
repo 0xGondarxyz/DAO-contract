@@ -36,7 +36,16 @@ contract DAO is Ownable2Step, ReentrancyGuard, Pausable {
     event ProposalCanceled(uint256 proposalId);
     event VoteCast(address indexed voter, uint256 proposalId, bool support, uint256 votes);
 
+    enum ProposalState {
+        Pending,
+        Active,
+        Defeated,
+        Succeeded,
+        Executed,
+        Canceled
+    }
     //proposal struct
+
     struct Proposal {
         uint256 id;
         address proposer;
@@ -115,13 +124,25 @@ contract DAO is Ownable2Step, ReentrancyGuard, Pausable {
     }
 
     //propose function
-    function propose(string memory _description, uint256 _startTime) external nonReentrant whenNotPaused {
+    function createProposal(string memory _description, uint256 _startTime) external nonReentrant whenNotPaused {
         require(voteToken.getVotes(msg.sender) >= proposalThreshold, "Insufficient voting power");
 
         proposalCount++;
         proposals[proposalCount] =
             Proposal(proposalCount, msg.sender, _description, _startTime, _startTime + votingPeriod, 0, 0, false, false);
         emit ProposalCreated(proposalCount, msg.sender, _description, block.timestamp, block.timestamp + votingPeriod);
+    }
+
+    function cancelProposal(uint256 _proposalId) external nonReentrant whenNotPaused {
+        //caller should be proposer or owner
+        require(msg.sender == proposals[_proposalId].proposer || msg.sender == owner(), "Not authorized");
+        require(proposals[_proposalId].id != 0, "Proposal does not exist");
+        require(block.timestamp < proposals[_proposalId].starttimestamp, "Voting has started");
+        require(!proposals[_proposalId].canceled, "Proposal has been canceled");
+        require(!proposals[_proposalId].executed, "Proposal has been executed");
+
+        proposals[_proposalId].canceled = true;
+        emit ProposalCanceled(_proposalId);
     }
 
     function castVote(uint256 _proposalId, bool _support) external nonReentrant whenNotPaused {
@@ -146,16 +167,6 @@ contract DAO is Ownable2Step, ReentrancyGuard, Pausable {
         emit VoteCast(msg.sender, _proposalId, _support, votingPower);
     }
 
-    function cancelProposal(uint256 _proposalId) external nonReentrant whenNotPaused {
-        require(proposals[_proposalId].id != 0, "Proposal does not exist");
-        require(block.timestamp < proposals[_proposalId].starttimestamp, "Voting has started");
-        require(!proposals[_proposalId].canceled, "Proposal has been canceled");
-        require(!proposals[_proposalId].executed, "Proposal has been executed");
-
-        proposals[_proposalId].canceled = true;
-        emit ProposalCanceled(_proposalId);
-    }
-
     //getter functions
     function getProposal(uint256 _proposalId) external view returns (Proposal memory) {
         return proposals[_proposalId];
@@ -163,5 +174,43 @@ contract DAO is Ownable2Step, ReentrancyGuard, Pausable {
 
     function getUserVote(uint256 _proposalId, address _user) external view returns (Vote memory) {
         return votes[_proposalId][_user];
+    }
+
+    /**
+     * getProposalState(proposalId)
+     * Returns enum or uint representing state:
+     *
+     * Check if current block < startBlock: return Pending
+     * Check if current block <= endBlock: return Active
+     * Check if canceled flag: return Canceled
+     * Check if executed flag: return Executed
+     * Check if didn't reach quorum: return Defeated
+     * Check if againstVotes >= forVotes: return Defeated
+     * Otherwise: return Succeeded
+     */
+    function getProposalState(uint256 _proposalId) external view returns (ProposalState) {
+        Proposal memory proposal = proposals[_proposalId];
+        if (block.timestamp < proposal.starttimestamp) {
+            return ProposalState.Pending;
+        } else if (block.timestamp <= proposal.endtimestamp) {
+            return ProposalState.Active;
+        } else if (proposal.canceled) {
+            return ProposalState.Canceled;
+        } else if (proposal.executed) {
+            return ProposalState.Executed;
+        } else if (!hasReachedQuorum(_proposalId)) {
+            return ProposalState.Defeated;
+        } else if (proposal.againstVotes >= proposal.forVotes) {
+            return ProposalState.Defeated;
+        } else {
+            return ProposalState.Succeeded;
+        }
+    }
+
+    function hasReachedQuorum(uint256 _proposalId) public view returns (bool) {
+        Proposal memory proposal = proposals[_proposalId];
+        uint256 totalSupply = voteToken.totalSupply();
+        uint256 quorum = (totalSupply * quorumPercentage) / 100;
+        return proposal.forVotes >= quorum;
     }
 }

@@ -88,13 +88,13 @@ contract DAOtest is Test {
         vm.startPrank(user1);
         // dao.purchaseTokens(10_000 * 1e6);
         // assertEq(voteToken.balanceOf(user1), 10_000 * 1e18);
-        dao.propose("Test proposal", block.timestamp);
+        dao.createProposal("Test proposal", block.timestamp);
         vm.stopPrank();
     }
 
     function test_castVote() public {
         vm.startPrank(user1);
-        dao.propose("Test proposal", block.timestamp);
+        dao.createProposal("Test proposal", block.timestamp);
         vm.stopPrank();
         //user 2 votes
         vm.startPrank(user2);
@@ -106,7 +106,7 @@ contract DAOtest is Test {
 
     function test_cancelProposal() public {
         vm.startPrank(user1);
-        dao.propose("Test proposal", block.timestamp + 5 days);
+        dao.createProposal("Test proposal", block.timestamp + 5 days);
         vm.stopPrank();
         //cancel proposal
         vm.warp(block.timestamp + 2 days);
@@ -117,7 +117,7 @@ contract DAOtest is Test {
 
     function test_cancelProposal_fails() public {
         vm.startPrank(user1);
-        dao.propose("Test proposal", block.timestamp + 2 days);
+        dao.createProposal("Test proposal", block.timestamp + 2 days);
         vm.stopPrank();
         //cancel proposal
         vm.warp(block.timestamp + 6 days);
@@ -125,5 +125,42 @@ contract DAOtest is Test {
         vm.expectRevert("Voting has started");
         dao.cancelProposal(1);
         vm.stopPrank();
+    }
+
+    function test_cancelProposal_fails_ifNOT_proposer() public {
+        vm.startPrank(user1);
+        dao.createProposal("Test proposal", block.timestamp + 5 days);
+        vm.stopPrank();
+        //cancel proposal
+        vm.warp(block.timestamp + 2 days);
+        vm.startPrank(user2);
+        vm.expectRevert("Not authorized");
+        dao.cancelProposal(1);
+        vm.stopPrank();
+        //get proposal state
+        dao.getProposalState(1);
+    }
+
+    function test_quorum() public {
+        vm.startPrank(user1);
+        dao.createProposal("Test proposal", block.timestamp);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        dao.castVote(1, true);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 2 days);
+
+        // Get state directly from DAO contract's enum
+        DAO.ProposalState state = dao.getProposalState(1);
+        console.log("State: ", uint256(state));
+
+        // Compare using uint casting
+        assertEq(uint256(state), uint256(DAO.ProposalState.Active));
+
+        assertEq(dao.hasReachedQuorum(1), true);
+
+        vm.warp(block.timestamp + 6 days);
+        assertEq(uint256(dao.getProposalState(1)), uint256(DAO.ProposalState.Succeeded));
     }
 }
