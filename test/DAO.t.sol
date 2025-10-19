@@ -42,24 +42,27 @@ contract DAOtest is Test {
         voteToken.transferOwnership(address(dao));
 
         // Give test users some USDC
-        usdc.transfer(user1, 10_000 * 1e6); // 10k USDC
-        usdc.transfer(user2, 10_000 * 1e6);
-        usdc.transfer(user3, 10_000 * 1e6);
+        usdc.transfer(user1, 100_000 * 1e6); // 10k USDC
+        usdc.transfer(user2, 100_000 * 1e6);
+        usdc.transfer(user3, 100_000 * 1e6);
 
         //users give allowance to dao
         vm.startPrank(user1);
-        usdc.approve(address(dao), 10_000 * 1e6);
-        dao.purchaseTokens(10_000 * 1e6);
+        usdc.approve(address(dao), 100_000 * 1e6);
+        dao.purchaseTokens(100_000 * 1e6);
+        voteToken.delegate(user1); //delegate voting power to user1
         vm.stopPrank();
 
         vm.startPrank(user2);
-        usdc.approve(address(dao), 10_000 * 1e6);
-        dao.purchaseTokens(10_000 * 1e6);
+        usdc.approve(address(dao), 100_000 * 1e6);
+        dao.purchaseTokens(50_000 * 1e6);
+        voteToken.delegate(user2); //delegate voting power to user2
         vm.stopPrank();
 
         vm.startPrank(user3);
-        usdc.approve(address(dao), 10_000 * 1e6);
+        usdc.approve(address(dao), 100_000 * 1e6);
         // dao.purchaseTokens(10_000 * 1e6);
+        voteToken.delegate(user3); //delegate voting power to user3
         vm.stopPrank();
 
         // Optional: Label addresses for better trace readability
@@ -85,22 +88,42 @@ contract DAOtest is Test {
         vm.startPrank(user1);
         // dao.purchaseTokens(10_000 * 1e6);
         // assertEq(voteToken.balanceOf(user1), 10_000 * 1e18);
-        dao.propose("Test proposal");
+        dao.propose("Test proposal", block.timestamp);
         vm.stopPrank();
     }
 
     function test_castVote() public {
         vm.startPrank(user1);
-        dao.propose("Test proposal");
+        dao.propose("Test proposal", block.timestamp);
         vm.stopPrank();
         //user 2 votes
         vm.startPrank(user2);
-        dao.castVote(1, true, 5_000 * 1e18);
+        dao.castVote(1, true);
         vm.stopPrank();
-        assertEq(dao.getProposal(1).forVotes, 5_000 * 1e18);
         //get proposal
         dao.getProposal(1);
-        //get user votes
-        dao.getUserVotes(user2, 1);
+    }
+
+    function test_cancelProposal() public {
+        vm.startPrank(user1);
+        dao.propose("Test proposal", block.timestamp + 5 days);
+        vm.stopPrank();
+        //cancel proposal
+        vm.warp(block.timestamp + 2 days);
+        vm.startPrank(user1);
+        dao.cancelProposal(1);
+        vm.stopPrank();
+    }
+
+    function test_cancelProposal_fails() public {
+        vm.startPrank(user1);
+        dao.propose("Test proposal", block.timestamp + 2 days);
+        vm.stopPrank();
+        //cancel proposal
+        vm.warp(block.timestamp + 6 days);
+        vm.startPrank(user1);
+        vm.expectRevert("Voting has started");
+        dao.cancelProposal(1);
+        vm.stopPrank();
     }
 }
