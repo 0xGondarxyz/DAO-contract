@@ -1,66 +1,74 @@
-## Foundry
+1. Proposal Struct
+   Store:
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Proposal ID
+Proposer address
+Description (string)
+Start block (when voting begins)
+End block (when voting ends)
+For votes count
+Against votes count
+Executed flag
+Canceled flag
 
-Foundry consists of:
+2. Proposal Storage
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Mapping: proposal ID → Proposal struct
+Mapping: proposal ID → voter address → has voted (bool)
+Maybe mapping: proposal ID → voter address → vote choice (for/against)
 
-## Documentation
+3. createProposal()
 
-https://book.getfoundry.sh/
+Check proposer has enough tokens (>= proposalThreshold)
+Increment proposal counter
+Create new proposal with:
 
-## Usage
+Current block as start
+Current block + votingPeriod as end
+Zero votes
+Not executed, not canceled
 
-### Build
+Store in mapping
+Emit event
 
-```shell
-$ forge build
-```
+4. castVote()
 
-### Test
+Check proposal exists
+Check voting is active (current block between start and end)
+Check voter hasn't voted yet
+Get voter's token balance (voting power)
+Check they have tokens
+Add their voting power to forVotes or againstVotes
+Mark them as voted
+Emit event
 
-```shell
-$ forge test
-```
+5. getProposalState()
+   Returns enum: Pending, Active, Defeated, Succeeded, Executed, Canceled
+   Logic:
 
-### Format
+If current block < start: Pending
+If current block <= end: Active
+If canceled: Canceled
+If executed: Executed
+If didn't reach quorum OR against > for: Defeated
+If reached quorum AND for > against: Succeeded
 
-```shell
-$ forge fmt
-```
+6. executeProposal()
 
-### Gas Snapshots
+Check proposal succeeded (use getProposalState)
+Check not already executed
+Mark as executed
+Emit event (in real DAO, this would trigger actual actions)
 
-```shell
-$ forge snapshot
-```
+7. Helper Functions
 
-### Anvil
+hasVoted(proposalId, voter) - returns bool
+getProposal(proposalId) - returns proposal details
+Calculate quorum: (totalSupply \* quorumPercentage) / 100
 
-```shell
-$ anvil
-```
+Key Logic Points:
 
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+Use block.number for timing
+Quorum = minimum total votes needed
+Vote with current balance (or use snapshots for more advanced)
+Once voted, can't change vote
